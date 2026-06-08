@@ -1,0 +1,3483 @@
+openapi: 3.0.3
+info:
+  title: Home Rent API
+  description: |
+    Comprehensive production-grade REST and WebSocket API for Home Rent.
+    Supports ~120 endpoints across authentication, user management, property listing/search,
+    inquiries, viewings, booking management, mobile money payments (MTN, Airtel, Zamtel),
+    agent CRM tools, admin moderation queues, analytics, file uploads, and search indexing.
+  version: 1.0.0
+servers:
+  - url: https://api.homerent.zm/api/v1
+    description: Production Server
+  - url: http://localhost:8080/api/v1
+    description: Local Development Server
+
+security:
+  - BearerAuth: []
+
+paths:
+  # =========================================================================
+  # 1. AUTHENTICATION & SESSIONS (12 endpoints)
+  # =========================================================================
+  /auth/register:
+    post:
+      summary: Register a new user
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/login:
+    post:
+      summary: User login
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful, returns tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /auth/logout:
+    post:
+      summary: Log out current user / invalidate session
+      tags: [Authentication]
+      responses:
+        '200':
+          description: Successfully logged out
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /auth/refresh:
+    post:
+      summary: Refresh authentication token
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: Tokens refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /auth/forgot-password:
+    post:
+      summary: Request password reset link
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Reset password email sent successfully
+
+  /auth/reset-password:
+    post:
+      summary: Reset password using verification token
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password reset successfully
+
+  /auth/verify-email:
+    post:
+      summary: Verify email address with token
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Email verified successfully
+
+  /auth/mfa/enable:
+    post:
+      summary: Initialize multi-factor authentication (MFA)
+      tags: [Authentication]
+      responses:
+        '200':
+          description: MFA setup details, returns QR code secret
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret:
+                    type: string
+                  qr_code_url:
+                    type: string
+
+  /auth/mfa/disable:
+    post:
+      summary: Disable multi-factor authentication (MFA)
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+      responses:
+        '200':
+          description: MFA disabled successfully
+
+  /auth/mfa/verify:
+    post:
+      summary: Verify MFA code during login
+      tags: [Authentication]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [login_token, code]
+              properties:
+                login_token:
+                  type: string
+                code:
+                  type: string
+      responses:
+        '200':
+          description: MFA verification successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+
+  /auth/sessions:
+    get:
+      summary: List all active user sessions
+      tags: [Authentication]
+      responses:
+        '200':
+          description: Active sessions list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UserSession'
+
+  /auth/sessions/{id}:
+    delete:
+      summary: Revoke an active session (logout specific device)
+      tags: [Authentication]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session revoked successfully
+
+  # =========================================================================
+  # 2. USERS & PROFILES (13 endpoints)
+  # =========================================================================
+  /users/me:
+    get:
+      summary: Get details of current user
+      tags: [Users]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    put:
+      summary: Update profile of current user
+      tags: [Users]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    delete:
+      summary: Deactivate current user account
+      tags: [Users]
+      responses:
+        '204':
+          description: Account deactivated successfully
+
+  /users/{id}:
+    get:
+      summary: Get user profile details by ID
+      tags: [Users]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /users/{id}/avatar:
+    put:
+      summary: Update user avatar image URL
+      tags: [Users]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [avatar_url]
+              properties:
+                avatar_url:
+                  type: string
+      responses:
+        '200':
+          description: Avatar updated
+
+  /users/tenants/{id}:
+    get:
+      summary: Get tenant KYC/profile details
+      tags: [Users]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantProfile'
+    put:
+      summary: Update tenant profile/KYC metadata
+      tags: [Users]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantProfile'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantProfile'
+
+  /users/landlords/{id}:
+    get:
+      summary: Get landlord profile details
+      tags: [Users]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LandlordProfile'
+    put:
+      summary: Update landlord profile details
+      tags: [Users]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LandlordProfile'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LandlordProfile'
+
+  /users/agents/{id}:
+    get:
+      summary: Get agent profile details
+      tags: [Users]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProfile'
+    put:
+      summary: Update agent credentials/company details
+      tags: [Users]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentProfile'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProfile'
+
+  /users/{id}/preferences:
+    get:
+      summary: Get user notification & search preferences
+      tags: [Users]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreferences'
+    put:
+      summary: Update user search & notification preferences
+      tags: [Users]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserPreferences'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPreferences'
+
+  # =========================================================================
+  # 3. PROPERTIES & CALENDARS (20 endpoints)
+  # =========================================================================
+  /properties:
+    get:
+      summary: Search and filter property listings
+      tags: [Properties]
+      security: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: listing_type
+          in: query
+          schema:
+            type: string
+            enum: [rent, sale]
+        - name: province
+          in: query
+          schema:
+            type: string
+        - name: area
+          in: query
+          schema:
+            type: string
+        - name: min_price
+          in: query
+          schema:
+            type: number
+        - name: max_price
+          in: query
+          schema:
+            type: number
+        - name: bedrooms
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Matched property list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Property'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+    post:
+      summary: Create a new property listing
+      tags: [Properties]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PropertyRequest'
+      responses:
+        '201':
+          description: Property listing created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+
+  /properties/featured:
+    get:
+      summary: Get list of featured properties
+      tags: [Properties]
+      security: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Property'
+
+  /properties/nearby:
+    get:
+      summary: Find properties nearby coordinates
+      tags: [Properties]
+      security: []
+      parameters:
+        - name: latitude
+          in: query
+          required: true
+          schema:
+            type: number
+        - name: longitude
+          in: query
+          required: true
+          schema:
+            type: number
+        - name: radius_km
+          in: query
+          schema:
+            type: number
+            default: 5
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Property'
+
+  /properties/recommendations:
+    get:
+      summary: Get personalized property recommendations for current user
+      tags: [Properties]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Property'
+
+  /properties/categories:
+    get:
+      summary: List all property categories
+      tags: [Properties]
+      security: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+    post:
+      summary: Create a property category (Admin only)
+      tags: [Properties]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Category'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+
+  /properties/categories/{id}:
+    put:
+      summary: Update a property category (Admin only)
+      tags: [Properties]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Category'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+    delete:
+      summary: Delete a property category (Admin only)
+      tags: [Properties]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Category deleted
+
+  /properties/{id}:
+    get:
+      summary: Get property details by ID
+      tags: [Properties]
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+    put:
+      summary: Update property listing details
+      tags: [Properties]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PropertyRequest'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+    delete:
+      summary: Delete property listing
+      tags: [Properties]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Property deleted
+
+  /properties/{id}/status:
+    patch:
+      summary: Update property listing status
+      tags: [Properties]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [draft, active, rented, archived]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+
+  /properties/{id}/images:
+    post:
+      summary: Upload images for a property listing (Multipart)
+      tags: [Properties]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                images:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  images:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ImageMetadata'
+
+  /properties/{id}/images/{imageId}:
+    delete:
+      summary: Delete a specific image from a property listing
+      tags: [Properties]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Image deleted
+
+  /properties/{id}/availability:
+    get:
+      summary: Get calendar availability/viewings for property
+      tags: [Properties]
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AvailabilityBlock'
+    post:
+      summary: Define calendar availability blocks (Agents/Landlords)
+      tags: [Properties]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AvailabilityBlock'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AvailabilityBlock'
+
+  /properties/{id}/reports:
+    post:
+      summary: Submit a report about a listing (e.g. fraud, inaccurate details)
+      tags: [Properties]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Listing report received successfully
+
+  /properties/{id}/history:
+    get:
+      summary: Fetch pricing/status history of a property listing
+      tags: [Properties]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PropertyHistory'
+
+  /properties/{id}/amenities:
+    post:
+      summary: Add or update property listing amenities
+      tags: [Properties]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amenities]
+              properties:
+                amenities:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Amenities updated
+
+  # =========================================================================
+  # 4. FAVORITES & SAVED SEARCHES (6 endpoints)
+  # =========================================================================
+  /favorites:
+    get:
+      summary: Get user favorited properties
+      tags: [Favorites]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Property'
+    post:
+      summary: Add a property to favorites
+      tags: [Favorites]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [property_id]
+              properties:
+                property_id:
+                  type: string
+      responses:
+        '201':
+          description: Added to favorites
+
+  /favorites/{propertyId}:
+    delete:
+      summary: Remove a property from favorites
+      tags: [Favorites]
+      parameters:
+        - name: propertyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Removed from favorites
+
+  /saved-searches:
+    get:
+      summary: List user saved search filters
+      tags: [Favorites]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SavedSearch'
+    post:
+      summary: Save a set of property search filters for notification alerts
+      tags: [Favorites]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SavedSearch'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedSearch'
+
+  /saved-searches/{id}:
+    delete:
+      summary: Delete a saved search filter
+      tags: [Favorites]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted successfully
+
+  # =========================================================================
+  # 5. INQUIRIES & VIEWINGS (12 endpoints)
+  # =========================================================================
+  /inquiries:
+    get:
+      summary: List property inquiries (sent/received)
+      tags: [Inquiries]
+      parameters:
+        - name: property_id
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Inquiry'
+    post:
+      summary: Create a property inquiry
+      tags: [Inquiries]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InquiryRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inquiry'
+
+  /inquiries/{id}:
+    get:
+      summary: Retrieve details of a specific inquiry
+      tags: [Inquiries]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inquiry'
+
+  /inquiries/{id}/close:
+    patch:
+      summary: Close/resolve an inquiry thread
+      tags: [Inquiries]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inquiry'
+
+  /inquiries/{id}/replies:
+    post:
+      summary: Post a reply within an inquiry thread
+      tags: [Inquiries]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+      responses:
+        '201':
+          description: Reply sent successfully
+
+  /viewings:
+    get:
+      summary: List viewing requests (received/sent)
+      tags: [Viewings]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected, rescheduled]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Viewing'
+    post:
+      summary: Request a property viewing slot
+      tags: [Viewings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ViewingRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Viewing'
+
+  /viewings/{id}:
+    get:
+      summary: Get viewing request details
+      tags: [Viewings]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Viewing'
+
+  /viewings/{id}/approve:
+    patch:
+      summary: Approve viewing request
+      tags: [Viewings]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Viewing'
+
+  /viewings/{id}/reject:
+    patch:
+      summary: Reject viewing request
+      tags: [Viewings]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Viewing'
+
+  /viewings/{id}/reschedule:
+    patch:
+      summary: Request rescheduling of a viewing
+      tags: [Viewings]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date, time]
+              properties:
+                date:
+                  type: string
+                  format: date
+                time:
+                  type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Viewing'
+
+  /viewings/{id}/feedback:
+    post:
+      summary: Provide feedback after a viewing session
+      tags: [Viewings]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rating, comment]
+              properties:
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                comment:
+                  type: string
+      responses:
+        '201':
+          description: Feedback recorded successfully
+
+  # =========================================================================
+  # 6. BOOKINGS, LEASES & SCREENINGS (11 endpoints)
+  # =========================================================================
+  /bookings:
+    get:
+      summary: List bookings for current user
+      tags: [Bookings]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Booking'
+    post:
+      summary: Request booking reservation for property
+      tags: [Bookings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+
+  /bookings/{id}:
+    get:
+      summary: Retrieve booking details
+      tags: [Bookings]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+
+  /bookings/{id}/cancel:
+    patch:
+      summary: Cancel booking request
+      tags: [Bookings]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+
+  /bookings/{id}/approve:
+    patch:
+      summary: Approve booking request (Landlord/Agent)
+      tags: [Bookings]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+
+  /leases:
+    get:
+      summary: List lease agreements
+      tags: [Bookings]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Lease'
+    post:
+      summary: Draft a lease agreement template
+      tags: [Bookings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaseRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lease'
+
+  /leases/{id}:
+    get:
+      summary: Get details of lease agreement
+      tags: [Bookings]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lease'
+
+  /leases/{id}/sign:
+    patch:
+      summary: Digitally sign the lease agreement
+      tags: [Bookings]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [signature_data]
+              properties:
+                signature_data:
+                  type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lease'
+
+  /leases/{id}/terminate:
+    post:
+      summary: Initiate early lease termination request
+      tags: [Bookings]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, exit_date]
+              properties:
+                reason:
+                  type: string
+                exit_date:
+                  type: string
+                  format: date
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lease'
+
+  /screening:
+    get:
+      summary: List tenant screening/background checks requests
+      tags: [Bookings]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Screening'
+    post:
+      summary: Request background screening verification for a tenant
+      tags: [Bookings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id, parameters]
+              properties:
+                tenant_id:
+                  type: string
+                parameters:
+                  type: object
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Screening'
+
+  /screening/{id}:
+    get:
+      summary: Get details / results of tenant background check
+      tags: [Bookings]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Screening'
+
+  # =========================================================================
+  # 7. PAYMENTS & MOBILE MONEY (12 endpoints)
+  # =========================================================================
+  /payments/mobile-money:
+    post:
+      summary: Initiate a Mobile Money payment transaction
+      description: Connects to MTN MoMo, Airtel Money, or Zamtel Kwacha APIs.
+      tags: [Payments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoMoPaymentRequest'
+      responses:
+        '200':
+          description: Payment initiated successfully, pending subscriber verification
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+
+  /payments/transactions:
+    get:
+      summary: List transaction histories with pagination
+      tags: [Payments]
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /payments/transactions/{id}:
+    get:
+      summary: Get status and details of transaction
+      tags: [Payments]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+
+  /payments/webhooks/mtn:
+    post:
+      summary: MTN Mobile Money transaction webhook listener
+      tags: [Payments]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Callback processed successfully
+
+  /payments/webhooks/airtel:
+    post:
+      summary: Airtel Money transaction webhook listener
+      tags: [Payments]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Callback processed successfully
+
+  /payments/webhooks/zamtel:
+    post:
+      summary: Zamtel Kwacha transaction webhook listener
+      tags: [Payments]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Callback processed successfully
+
+  /payments/refunds:
+    get:
+      summary: List payment refunds
+      tags: [Payments]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Refund'
+    post:
+      summary: Request refund on booking deposits / payments
+      tags: [Payments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRequest'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Refund'
+
+  /payments/refunds/{id}:
+    get:
+      summary: Get details of requested refund
+      tags: [Payments]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Refund'
+
+  /subscriptions/plans:
+    get:
+      summary: Fetch subscription pricing plans (Agent/Landlord upgrades)
+      tags: [Payments]
+      security: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SubscriptionPlan'
+
+  /subscriptions/my:
+    get:
+      summary: Get active subscription for current user
+      tags: [Payments]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+
+  /subscriptions/subscribe:
+    post:
+      summary: Purchase premium subscription plan
+      tags: [Payments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_id, gateway]
+              properties:
+                plan_id:
+                  type: string
+                gateway:
+                  type: string
+                  enum: [mtn, airtel, zamtel]
+                phone_number:
+                  type: string
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+
+  /subscriptions/cancel:
+    post:
+      summary: Cancel subscription plan auto-renewal
+      tags: [Payments]
+      responses:
+        '200':
+          description: Auto-renewal cancelled successfully
+
+  # =========================================================================
+  # 8. WEBSOCKETS (CHAT & NOTIFICATIONS) (11 endpoints)
+  # =========================================================================
+  /ws/connect:
+    get:
+      summary: Upgrade connection to WebSocket duplex protocol
+      description: |
+        Upgrades HTTP to WebSocket.
+        Websocket channel is used for duplex real-time messages and state events.
+      tags: [WebSockets]
+      security:
+        - QueryAuth: []
+      responses:
+        '101':
+          description: Switching Protocols to WebSocket.
+
+  /conversations:
+    get:
+      summary: List all active chat conversations
+      tags: [WebSockets]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Conversation'
+    post:
+      summary: Start a new conversation thread
+      tags: [WebSockets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recipient_id]
+              properties:
+                recipient_id:
+                  type: string
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+
+  /conversations/{id}:
+    get:
+      summary: Get conversation metadata
+      tags: [WebSockets]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+
+  /conversations/{id}/messages:
+    get:
+      summary: Retrieve message history inside a conversation thread
+      tags: [WebSockets]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: before_id
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+
+  /conversations/{id}/messages/http:
+    post:
+      summary: Send message via HTTP fallback (if WS is offline)
+      tags: [WebSockets]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+
+  /conversations/{id}/messages/{msgId}:
+    delete:
+      summary: Delete or recall a message in chat
+      tags: [WebSockets]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: msgId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Message deleted
+
+  /notifications:
+    get:
+      summary: List user notifications
+      tags: [WebSockets]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+
+  /notifications/{id}/read:
+    patch:
+      summary: Mark a single notification as read
+      tags: [WebSockets]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+
+  /notifications/read-all:
+    patch:
+      summary: Mark all notifications of current user as read
+      tags: [WebSockets]
+      responses:
+        '200':
+          description: All notifications marked as read
+
+  /notifications/{id}:
+    delete:
+      summary: Delete specific notification log
+      tags: [WebSockets]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Notification deleted
+
+  # =========================================================================
+  # 9. PROPERTY COMPARISONS (4 endpoints)
+  # =========================================================================
+  /compare:
+    get:
+      summary: Fetch current session comparisons list
+      tags: [Comparison]
+      security: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Property'
+    post:
+      summary: Add a property to comparison bucket
+      tags: [Comparison]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [property_id]
+              properties:
+                property_id:
+                  type: string
+      responses:
+        '201':
+          description: Property added to comparison list
+
+  /compare/{propertyId}:
+    delete:
+      summary: Remove a property from comparison list
+      tags: [Comparison]
+      security: []
+      parameters:
+        - name: propertyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Property removed from comparison list
+
+  /compare/results:
+    get:
+      summary: Fetch structural matrix comparing selected properties side-by-side
+      tags: [Comparison]
+      security: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComparisonMatrix'
+
+  # =========================================================================
+  # 10. AGENT CRM (12 endpoints)
+  # =========================================================================
+  /crm/leads:
+    get:
+      summary: Fetch lead pipeline contacts (Agents only)
+      tags: [Agent CRM]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CRMLead'
+    post:
+      summary: Add a CRM lead contact manually
+      tags: [Agent CRM]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CRMLead'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CRMLead'
+
+  /crm/leads/{id}:
+    get:
+      summary: Get details of CRM lead
+      tags: [Agent CRM]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CRMLead'
+    put:
+      summary: Update lead pipeline coordinates / contact info
+      tags: [Agent CRM]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CRMLead'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CRMLead'
+
+  /crm/leads/{id}/notes:
+    post:
+      summary: Append notes regarding CRM lead interaction
+      tags: [Agent CRM]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note]
+              properties:
+                note:
+                  type: string
+      responses:
+        '201':
+          description: CRM Note appended successfully
+
+  /crm/tasks:
+    get:
+      summary: List tasks and reminders
+      tags: [Agent CRM]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CRMTask'
+    post:
+      summary: Create task scheduling for properties / viewings
+      tags: [Agent CRM]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CRMTask'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CRMTask'
+
+  /crm/tasks/{id}:
+    put:
+      summary: Edit scheduling task or status
+      tags: [Agent CRM]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CRMTask'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CRMTask'
+    delete:
+      summary: Delete scheduled task
+      tags: [Agent CRM]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: CRM Task deleted
+
+  /crm/deals:
+    get:
+      summary: Fetch deal metrics and analytics pipeline details
+      tags: [Agent CRM]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_deals:
+                    type: integer
+                  deal_value_zmw:
+                    type: number
+
+  /crm/meetings:
+    get:
+      summary: List scheduled meetings with leads / tenants
+      tags: [Agent CRM]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CRMMeeting'
+    post:
+      summary: Schedule calendar meeting with client
+      tags: [Agent CRM]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CRMMeeting'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CRMMeeting'
+
+  /crm/performance:
+    get:
+      summary: Retrieve performance statistics for current agent
+      tags: [Agent CRM]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  leads_converted:
+                    type: integer
+                  conversion_rate:
+                    type: number
+                  avg_days_to_rent:
+                    type: number
+
+  # =========================================================================
+  # 11. ADMIN & MODERATION (14 endpoints)
+  # =========================================================================
+  /admin/users:
+    get:
+      summary: List users on platform (Admin only)
+      tags: [Admin & Moderation]
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: role
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+
+  /admin/users/{id}/role:
+    patch:
+      summary: Modify role level of specific user (Admin only)
+      tags: [Admin & Moderation]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  type: string
+                  enum: [tenant, landlord, agent, moderator, admin]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /admin/users/{id}/ban:
+    patch:
+      summary: Ban/suspend user access (Admin only)
+      tags: [Admin & Moderation]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [banned, reason]
+              properties:
+                banned:
+                  type: boolean
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: User status modified
+
+  /admin/moderation/properties:
+    get:
+      summary: Retrieve properties requiring admin approval
+      tags: [Admin & Moderation]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Property'
+
+  /admin/moderation/properties/{id}/approve:
+    patch:
+      summary: Approve pending property listing (Moderators/Admins)
+      tags: [Admin & Moderation]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+
+  /admin/moderation/properties/{id}/reject:
+    patch:
+      summary: Reject pending property listing
+      tags: [Admin & Moderation]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Property'
+
+  /admin/moderation/reports:
+    get:
+      summary: List content reports submitted by users
+      tags: [Admin & Moderation]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ContentReport'
+
+  /admin/moderation/reports/{id}/resolve:
+    patch:
+      summary: Resolve/dismiss listing report
+      tags: [Admin & Moderation]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Report status resolved
+
+  /admin/verifications:
+    get:
+      summary: List pending identity verification (KYC) documents
+      tags: [Admin & Moderation]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VerificationQueueItem'
+
+  /admin/verifications/{id}/approve:
+    patch:
+      summary: Approve KYC documents for landlord/agent
+      tags: [Admin & Moderation]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: KYC request approved
+
+  /admin/verifications/{id}/reject:
+    patch:
+      summary: Reject verification documents
+      tags: [Admin & Moderation]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: KYC request rejected
+
+  /admin/audit-logs:
+    get:
+      summary: Fetch audit logs of administration actions
+      tags: [Admin & Moderation]
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditLog'
+
+  /admin/settings:
+    get:
+      summary: Retrieve global platform settings
+      tags: [Admin & Moderation]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemSettings'
+    put:
+      summary: Update global system settings configuration
+      tags: [Admin & Moderation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemSettings'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemSettings'
+
+  # =========================================================================
+  # 12. ANALYTICS & MONITORING (5 endpoints)
+  # =========================================================================
+  /analytics/properties/{id}:
+    get:
+      summary: Fetch detailed visitor/interaction analytics for a specific listing
+      tags: [Analytics]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PropertyAnalytics'
+
+  /analytics/landlord/dashboard:
+    get:
+      summary: Fetch metrics dashboard for landlord (views, inquiry conversions)
+      tags: [Analytics]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LandlordDashboard'
+
+  /analytics/platform/overview:
+    get:
+      summary: Get general growth analytics for admin
+      tags: [Analytics]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_listings:
+                    type: integer
+                  active_users:
+                    type: integer
+                  rented_rate:
+                    type: number
+
+  /analytics/platform/revenue:
+    get:
+      summary: Get platform revenue analysis parameters (Admin only)
+      tags: [Analytics]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  monthly_revenue:
+                    type: number
+                  total_subscriptions:
+                    type: integer
+
+  /analytics/pricing-trends:
+    get:
+      summary: Fetch average rental pricing trends in Zambia regions
+      tags: [Analytics]
+      security: []
+      parameters:
+        - name: province
+          in: query
+          schema:
+            type: string
+        - name: district
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PriceTrendItem'
+
+  # =========================================================================
+  # 13. FILE UPLOADS (4 endpoints)
+  # =========================================================================
+  /uploads/presigned-url:
+    post:
+      summary: Generate a presigned URL to upload directly to S3 / Cloud Storage
+      tags: [File Uploads]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, content_type]
+              properties:
+                filename:
+                  type: string
+                content_type:
+                  type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upload_url:
+                    type: string
+                  file_url:
+                    type: string
+
+  /uploads/file:
+    post:
+      summary: Direct file upload multipart endpoint (alternative/fallback)
+      tags: [File Uploads]
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageMetadata'
+
+  /uploads/my-files:
+    get:
+      summary: Get list of files uploaded by current user
+      tags: [File Uploads]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ImageMetadata'
+
+  /uploads/{fileId}:
+    delete:
+      summary: Delete an uploaded file
+      tags: [File Uploads]
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: File deleted
+
+  # =========================================================================
+  # 14. SEARCH INDEXING (5 endpoints)
+  # =========================================================================
+  /search-index/reindex:
+    post:
+      summary: Trigger search indexing sync process (Admin only)
+      tags: [Search Indexing]
+      responses:
+        '202':
+          description: Reindexing process scheduled successfully
+
+  /search-index/status:
+    get:
+      summary: Retrieve Elasticsearch/MeiliSearch engine cluster status (Admin only)
+      tags: [Search Indexing]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  engine:
+                    type: string
+                  status:
+                    type: string
+                  documents_indexed:
+                    type: integer
+
+  /search-index/synonyms:
+    get:
+      summary: List search synonym mappings
+      tags: [Search Indexing]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SynonymRule'
+    post:
+      summary: Add a new search synonym rule (Admin only)
+      tags: [Search Indexing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SynonymRule'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SynonymRule'
+
+  /search-index/synonyms/{id}:
+    delete:
+      summary: Remove a search synonym rule
+      tags: [Search Indexing]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Synonym rule removed
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    QueryAuth:
+      type: apiKey
+      in: query
+      name: token
+
+  responses:
+    ValidationError:
+      description: Invalid request body or validation rules violated
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    UnauthorizedError:
+      description: Authentication token missing, expired, or invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ForbiddenError:
+      description: User lacks roles/permissions to execute resource
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFoundError:
+      description: Resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalServerError:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    # --- Auth Schemas ---
+    RegisterRequest:
+      type: object
+      required: [first_name, last_name, email, phone, password, account_type]
+      properties:
+        first_name:
+          type: string
+          example: Felix
+        last_name:
+          type: string
+          example: Simpemba
+        email:
+          type: string
+          format: email
+          example: felix@example.com
+        phone:
+          type: string
+          pattern: '^\+260\d{9}$'
+          example: "+260977123456"
+        password:
+          type: string
+          minLength: 8
+          example: Password@123
+        account_type:
+          type: string
+          enum: [tenant, landlord, agent]
+          example: tenant
+
+    RegisterResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            user_id:
+              type: string
+            verification_required:
+              type: boolean
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          example: felix@example.com
+        password:
+          type: string
+          example: Password@123
+
+    LoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        token:
+          type: string
+        refresh_token:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+        password:
+          type: string
+          minLength: 8
+
+    UserSession:
+      type: object
+      properties:
+        id:
+          type: string
+        device_name:
+          type: string
+        ip_address:
+          type: string
+        last_active:
+          type: string
+          format: date-time
+
+    # --- User Schemas ---
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        role:
+          type: string
+          enum: [tenant, landlord, agent, moderator, admin]
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
+        phone:
+          type: string
+        bio:
+          type: string
+
+    TenantProfile:
+      type: object
+      properties:
+        user_id:
+          type: string
+        occupation:
+          type: string
+        nrc_number:
+          type: string
+        references:
+          type: array
+          items:
+            type: string
+
+    LandlordProfile:
+      type: object
+      properties:
+        user_id:
+          type: string
+        company_name:
+          type: string
+        nrc_number:
+          type: string
+        verified:
+          type: boolean
+
+    AgentProfile:
+      type: object
+      properties:
+        user_id:
+          type: string
+        agency_name:
+          type: string
+        license_number:
+          type: string
+        tax_number:
+          type: string
+        verified:
+          type: boolean
+
+    UserPreferences:
+      type: object
+      properties:
+        email_notifications:
+          type: boolean
+        push_notifications:
+          type: boolean
+        preferred_provinces:
+          type: array
+          items:
+            type: string
+
+    # --- Property Schemas ---
+    Property:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        property_type:
+          type: string
+        listing_type:
+          type: string
+        price:
+          type: number
+        deposit:
+          type: number
+        bedrooms:
+          type: integer
+        bathrooms:
+          type: integer
+        parking_spaces:
+          type: integer
+        province:
+          type: string
+        district:
+          type: string
+        area:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageMetadata'
+        amenities:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+        owner:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+
+    PropertyRequest:
+      type: object
+      required: [title, description, property_type, listing_type, price, province, district, area]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        property_type:
+          type: string
+        listing_type:
+          type: string
+          enum: [rent, sale]
+        price:
+          type: number
+        deposit:
+          type: number
+        bedrooms:
+          type: integer
+        bathrooms:
+          type: integer
+        parking_spaces:
+          type: integer
+        province:
+          type: string
+        district:
+          type: string
+        area:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        amenities:
+          type: array
+          items:
+            type: string
+
+    ImageMetadata:
+      type: object
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Category:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+
+    AvailabilityBlock:
+      type: object
+      properties:
+        id:
+          type: string
+        date:
+          type: string
+          format: date
+        start_time:
+          type: string
+        end_time:
+          type: string
+
+    PropertyHistory:
+      type: object
+      properties:
+        id:
+          type: string
+        event:
+          type: string
+        old_value:
+          type: string
+        new_value:
+          type: string
+          format: date-time
+
+    # --- Inquiry & Viewing Schemas ---
+    Inquiry:
+      type: object
+      properties:
+        id:
+          type: string
+        property_id:
+          type: string
+        tenant_id:
+          type: string
+        message:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    InquiryRequest:
+      type: object
+      required: [property_id, message]
+      properties:
+        property_id:
+          type: string
+        message:
+          type: string
+
+    Viewing:
+      type: object
+      properties:
+        id:
+          type: string
+        property_id:
+          type: string
+        tenant_id:
+          type: string
+        date:
+          type: string
+          format: date
+        time:
+          type: string
+        message:
+          type: string
+        status:
+          type: string
+
+    ViewingRequest:
+      type: object
+      required: [property_id, date, time]
+      properties:
+        property_id:
+          type: string
+        date:
+          type: string
+          format: date
+        time:
+          type: string
+        message:
+          type: string
+
+    # --- Booking & Lease Schemas ---
+    Booking:
+      type: object
+      properties:
+        id:
+          type: string
+        property_id:
+          type: string
+        tenant_id:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+
+    BookingRequest:
+      type: object
+      required: [property_id]
+      properties:
+        property_id:
+          type: string
+
+    Lease:
+      type: object
+      properties:
+        id:
+          type: string
+        booking_id:
+          type: string
+        terms:
+          type: string
+        tenant_signed:
+          type: boolean
+        landlord_signed:
+          type: boolean
+        created_at:
+          type: string
+
+    LeaseRequest:
+      type: object
+      required: [booking_id, terms]
+      properties:
+        booking_id:
+          type: string
+        terms:
+          type: string
+
+    Screening:
+      type: object
+      properties:
+        id:
+          type: string
+        tenant_id:
+          type: string
+        status:
+          type: string
+        report_url:
+          type: string
+
+    # --- Saved Search ---
+    SavedSearch:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        filters:
+          type: object
+
+    # --- Payments ---
+    MoMoPaymentRequest:
+      type: object
+      required: [provider, phone_number, amount]
+      properties:
+        provider:
+          type: string
+          enum: [mtn, airtel, zamtel]
+        phone_number:
+          type: string
+          pattern: '^\+260\d{9}$'
+          description: Zambia mobile number format.
+        amount:
+          type: number
+          minimum: 1
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+        reference:
+          type: string
+        provider:
+          type: string
+        phone_number:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+          default: ZMW
+        status:
+          type: string
+          enum: [pending, successful, failed]
+        created_at:
+          type: string
+          format: date-time
+
+    Refund:
+      type: object
+      properties:
+        id:
+          type: string
+        transaction_id:
+          type: string
+        amount:
+          type: number
+        status:
+          type: string
+        reason:
+          type: string
+
+    RefundRequest:
+      type: object
+      required: [transaction_id, amount, reason]
+      properties:
+        transaction_id:
+          type: string
+        amount:
+          type: number
+        reason:
+          type: string
+
+    SubscriptionPlan:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        price:
+          type: number
+        features:
+          type: array
+          items:
+            type: string
+
+    Subscription:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        plan_id:
+          type: string
+        status:
+          type: string
+        ends_at:
+          type: string
+          format: date-time
+
+    # --- WebSockets & Chat ---
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: string
+        participants:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        last_message:
+          $ref: '#/components/schemas/Message'
+        updated_at:
+          type: string
+          format: date-time
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        conversation_id:
+          type: string
+        sender_id:
+          type: string
+        content:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+        recipient_id:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        read:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    # --- Property Compare ---
+    ComparisonMatrix:
+      type: object
+      properties:
+        properties:
+          type: array
+          items:
+            $ref: '#/components/schemas/Property'
+        differences:
+          type: array
+          items:
+            type: string
+
+    # --- Agent CRM ---
+    CRMLead:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        pipeline_status:
+          type: string
+          enum: [inquiry, viewing_scheduled, lease_drafted, rented, closed]
+        assigned_properties:
+          type: array
+          items:
+            type: string
+
+    CRMTask:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        due_date:
+          type: string
+          format: date-time
+        done:
+          type: boolean
+
+    CRMMeeting:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        meeting_time:
+          type: string
+          format: date-time
+        lead_id:
+          type: string
+
+    # --- Admin Moderation ---
+    ContentReport:
+      type: object
+      properties:
+        id:
+          type: string
+        reporter_id:
+          type: string
+        target_type:
+          type: string
+        target_id:
+          type: string
+        reason:
+          type: string
+        status:
+          type: string
+
+    VerificationQueueItem:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        role:
+          type: string
+        document_urls:
+          type: array
+          items:
+            type: string
+        submitted_at:
+          type: string
+          format: date-time
+
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+        actor_id:
+          type: string
+        action:
+          type: string
+        details:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    SystemSettings:
+      type: object
+      properties:
+        maintenance_mode:
+          type: boolean
+        listing_moderation_required:
+          type: boolean
+        agent_subscription_price:
+          type: number
+
+    # --- Analytics ---
+    PropertyAnalytics:
+      type: object
+      properties:
+        views:
+          type: integer
+        inquiries_count:
+          type: integer
+        viewings_count:
+          type: integer
+
+    LandlordDashboard:
+      type: object
+      properties:
+        active_listings:
+          type: integer
+        total_income:
+          type: number
+        occupancy_rate:
+          type: number
+
+    PriceTrendItem:
+      type: object
+      properties:
+        region:
+          type: string
+        average_price:
+          type: number
+        year_month:
+          type: string
+
+    # --- Search Synonyms ---
+    SynonymRule:
+      type: object
+      properties:
+        id:
+          type: string
+        word:
+          type: string
+        synonyms:
+          type: array
+          items:
+            type: string
+
+    # --- Pagination & Errors ---
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      required: [type, title, status, detail, instance]
+      properties:
+        type:
+          type: string
+          format: uri
+          example: https://api.homerent.zm/errors/validation-failed
+        title:
+          type: string
+          example: Validation Failed
+        status:
+          type: integer
+          example: 400
+        detail:
+          type: string
+          example: The 'phone' field does not match the required Zambia format pattern.
+        instance:
+          type: string
+          format: uri
+          example: /api/v1/auth/register
+        invalid_params:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: phone
+              reason:
+                type: string
+                example: must be in format +2609XXXXXXXX
