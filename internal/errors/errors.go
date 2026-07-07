@@ -55,6 +55,14 @@ func NotFound(w http.ResponseWriter, r *http.Request, detail string) {
 	WriteJSONError(w, r, http.StatusNotFound, "Not Found", detail, nil)
 }
 
+func Conflict(w http.ResponseWriter, r *http.Request, detail string) {
+	WriteJSONError(w, r, http.StatusConflict, "Conflict", detail, nil)
+}
+
+func UnprocessableEntity(w http.ResponseWriter, r *http.Request, detail string, params []InvalidParam) {
+	WriteJSONError(w, r, http.StatusUnprocessableEntity, "Unprocessable Entity", detail, params)
+}
+
 func InternalServerError(w http.ResponseWriter, r *http.Request) {
 	WriteJSONError(w, r, http.StatusInternalServerError, "Internal Server Error", "An unexpected error occurred on the server.", nil)
 }

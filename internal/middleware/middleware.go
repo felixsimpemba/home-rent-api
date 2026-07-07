@@ -1,11 +1,18 @@
 package middleware
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/felixsimpemba/home-rent-api/internal/errors"
 )
@@ -13,26 +20,50 @@ import (
 type contextKey string
 
 const (
-	UserIDKey contextKey = "userId"
+	UserIDKey   contextKey = "userId"
 	UserRoleKey contextKey = "userRole"
 )
 
-// Logger logs incoming requests
+// ─── Logger ───────────────────────────────────────────────────────────────────
+
+// Logger logs incoming requests and completion status
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		log.Printf("Started %s %s", r.Method, r.URL.Path)
 
-		// Simple response wrapper to capture status code
+		// Read and log request body for non-GET/non-DELETE/non-OPTIONS requests
+		var bodyStr string
+		if r.Body != nil && r.Method != http.MethodGet && r.Method != http.MethodDelete && r.Method != http.MethodOptions {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err == nil {
+				// Restore body
+				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+				if len(bodyBytes) > 0 {
+					bodyStr = string(bodyBytes)
+					if len(bodyStr) > 1000 {
+						bodyStr = bodyStr[:1000] + "... (truncated)"
+					}
+				}
+			}
+		}
+
+		if bodyStr != "" {
+			log.Printf("→ %s %s | Data: %s", r.Method, r.URL.RequestURI(), bodyStr)
+		} else {
+			log.Printf("→ %s %s", r.Method, r.URL.RequestURI())
+		}
+
 		wrapped := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(wrapped, r)
 
-		log.Printf("Completed %s %s with %d %s in %v",
-			r.Method, r.URL.Path, wrapped.status, http.StatusText(wrapped.status), time.Since(start))
+		log.Printf("← %s %s %d %s (%v)",
+			r.Method, r.URL.RequestURI(), wrapped.status, http.StatusText(wrapped.status), time.Since(start))
 	})
 }
 
-// Recover handles panics gracefully
+// ─── Recover ──────────────────────────────────────────────────────────────────
+
+// Recover handles panics gracefully and returns 500
 func Recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -45,60 +76,56 @@ func Recover(next http.Handler) http.Handler {
 	})
 }
 
-// Authenticate extracts claims from JWT Bearer token and populates context
+// ─── Authenticate ─────────────────────────────────────────────────────────────
+
+// Claims represents JWT payload
+type Claims struct {
+	UserID string `json:"user_id"`
+	Role   string `json:"role"`
+	jwt.RegisteredClaims
+}
+
+// Authenticate validates a JWT Bearer token and injects user context
 func Authenticate(jwtSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				// Allow request to proceed unauthenticated; handlers will enforce auth if needed
-				next.ServeHTTP(w, r)
+				errors.Unauthorized(w, r, "Authorization header is required.")
 				return
 			}
 
-			parts := strings.Split(authHeader, " ")
-			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-				errors.Unauthorized(w, r, "Invalid authorization format. Must be 'Bearer <token>'.")
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+				errors.Unauthorized(w, r, "Invalid authorization format. Expected: Bearer <token>")
 				return
 			}
 
-			token := parts[1]
-			// Mock verification: In a real system, verify token using jwt-go and secret
-			// For this boilerplate, we accept 'tenant_token', 'landlord_token', 'agent_token', 'admin_token'
-			var userID, role string
-			switch token {
-			case "tenant_token":
-				userID = "usr_tenant_123"
-				role = "tenant"
-			case "landlord_token":
-				userID = "usr_landlord_456"
-				role = "landlord"
-			case "agent_token":
-				userID = "usr_agent_789"
-				role = "agent"
-			case "admin_token":
-				userID = "usr_admin_000"
-				role = "admin"
-			default:
-				// Fallback to checking if token matches direct roles for ease of mocking/testing
-				if strings.HasSuffix(token, "_token") {
-					role = strings.TrimSuffix(token, "_token")
-					userID = "usr_mock_" + role
-				} else {
-					errors.Unauthorized(w, r, "Invalid or expired token.")
-					return
+			tokenStr := parts[1]
+			claims := &Claims{}
+
+			token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, jwt.ErrSignatureInvalid
 				}
+				return []byte(jwtSecret), nil
+			})
+
+			if err != nil || !token.Valid {
+				errors.Unauthorized(w, r, "Invalid or expired access token.")
+				return
 			}
 
-			ctx := context.WithValue(r.Context(), UserIDKey, userID)
-			ctx = context.WithValue(ctx, UserRoleKey, role)
-
+			ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
+			ctx = context.WithValue(ctx, UserRoleKey, claims.Role)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// RequireRoles restricts path access to specified roles
+// ─── RequireRoles ─────────────────────────────────────────────────────────────
+
+// RequireRoles restricts access to the specified roles
 func RequireRoles(allowedRoles ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -108,22 +135,30 @@ func RequireRoles(allowedRoles ...string) func(http.Handler) http.Handler {
 				return
 			}
 
-			allowed := false
-			for _, r := range allowedRoles {
-				if r == role {
-					allowed = true
-					break
+			for _, allowed := range allowedRoles {
+				if allowed == role {
+					next.ServeHTTP(w, r)
+					return
 				}
 			}
 
-			if !allowed {
-				errors.Forbidden(w, r, "You do not have the required permissions to access this resource.")
-				return
-			}
-
-			next.ServeHTTP(w, r)
+			errors.Forbidden(w, r, "You do not have the required permissions.")
 		})
 	}
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// GetUserID extracts the authenticated user ID from request context
+func GetUserID(r *http.Request) string {
+	id, _ := r.Context().Value(UserIDKey).(string)
+	return id
+}
+
+// GetUserRole extracts the authenticated user role from request context
+func GetUserRole(r *http.Request) string {
+	role, _ := r.Context().Value(UserRoleKey).(string)
+	return role
 }
 
 type responseWriter struct {
@@ -134,4 +169,12 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(code int) {
 	rw.status = code
 	rw.ResponseWriter.WriteHeader(code)
+}
+
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := rw.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
+	}
+	return hijacker.Hijack()
 }

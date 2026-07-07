@@ -1,0 +1,7 @@
+2026/06/08 22:28:24 Connecting to MySQL via GORM on localhost:3306 (database: home-rent)...
+2026/06/08 22:28:24 Running GORM database schema auto-migrations...
+2026/06/08 22:28:25 Database schema migration completed successfully.
+2026/06/08 22:28:25 ✓ Server running on http://localhost:8080
+2026/06/08 22:28:25 ✓ REST API:   http://localhost:8080/api/v1
+2026/06/08 22:28:25 ✓ WebSocket:  ws://localhost:8080/api/v1/ws/connect  (requires Authorization header)
+2026/06/08 22:28:25 ✓ Press Ctrl+C to stop.

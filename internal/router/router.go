@@ -3,9 +3,12 @@ package router
 import (
 	"net/http"
 
+	"gorm.io/gorm"
+
 	"github.com/felixsimpemba/home-rent-api/internal/config"
 	"github.com/felixsimpemba/home-rent-api/internal/handlers"
 	"github.com/felixsimpemba/home-rent-api/internal/middleware"
+	wslib "github.com/felixsimpemba/home-rent-api/internal/ws"
 )
 
 type Middleware func(http.Handler) http.Handler
@@ -18,24 +21,24 @@ func chain(h http.Handler, mws ...Middleware) http.Handler {
 }
 
 // RegisterRoutes registers all endpoints and chains security middlewares
-func RegisterRoutes(cfg *config.Config) http.Handler {
+func RegisterRoutes(cfg *config.Config, db *gorm.DB, hub *wslib.Hub) http.Handler {
 	mux := http.NewServeMux()
 
-	// Initialize handlers
-	auth := handlers.NewAuthHandler()
-	users := handlers.NewUsersHandler()
-	properties := handlers.NewPropertiesHandler()
-	favorites := handlers.NewFavoritesHandler()
-	inquiries := handlers.NewInquiriesHandler()
-	payments := handlers.NewPaymentsHandler()
-	ws := handlers.NewWebSocketsHandler()
-	crm := handlers.NewCRMHandler()
-	admin := handlers.NewAdminHandler()
-	analytics := handlers.NewAnalyticsHandler()
-	uploads := handlers.NewUploadsHandler()
-	search := handlers.NewSearchHandler()
+	// ─── Initialize handlers with DB injection ────────────────────────────────
+	auth := handlers.NewAuthHandler(db, cfg.JWTSecret)
+	users := handlers.NewUsersHandler(db)
+	properties := handlers.NewPropertiesHandler(db)
+	favorites := handlers.NewFavoritesHandler(db)
+	inquiries := handlers.NewInquiriesHandler(db)
+	payments := handlers.NewPaymentsHandler(db)
+	ws := handlers.NewWebSocketsHandler(db, hub)
+	crm := handlers.NewCRMHandler(db)
+	admin := handlers.NewAdminHandler(db)
+	analytics := handlers.NewAnalyticsHandler(db)
+	uploads := handlers.NewUploadsHandler(db)
+	search := handlers.NewSearchHandler(db)
 
-	// Base middlewares
+	// ─── Middleware factories ─────────────────────────────────────────────────
 	authMW := middleware.Authenticate(cfg.JWTSecret)
 	roleTenant := middleware.RequireRoles("tenant", "admin")
 	roleLandlord := middleware.RequireRoles("landlord", "admin")
@@ -43,6 +46,14 @@ func RegisterRoutes(cfg *config.Config) http.Handler {
 	roleAgentLandlord := middleware.RequireRoles("agent", "landlord", "admin")
 	roleAdminMod := middleware.RequireRoles("admin", "moderator")
 	roleAdminOnly := middleware.RequireRoles("admin")
+
+	// ─── Helper closures ──────────────────────────────────────────────────────
+	authHandler := func(pattern string, handlerFunc http.HandlerFunc) {
+		mux.Handle(pattern, chain(handlerFunc, authMW))
+	}
+	roleHandler := func(pattern string, handlerFunc http.HandlerFunc, roleGuard Middleware) {
+		mux.Handle(pattern, chain(handlerFunc, authMW, roleGuard))
+	}
 
 	// ==========================================
 	// 1. PUBLIC ROUTES
@@ -58,9 +69,9 @@ func RegisterRoutes(cfg *config.Config) http.Handler {
 	mux.HandleFunc("GET /api/v1/properties", properties.Search)
 	mux.HandleFunc("GET /api/v1/properties/featured", properties.GetFeatured)
 	mux.HandleFunc("GET /api/v1/properties/nearby", properties.GetNearby)
+	mux.HandleFunc("GET /api/v1/properties/categories", properties.ListCategories)
 	mux.HandleFunc("GET /api/v1/properties/{id}", properties.Get)
 	mux.HandleFunc("GET /api/v1/properties/{id}/availability", properties.GetAvailability)
-	mux.HandleFunc("GET /api/v1/properties/categories", properties.ListCategories)
 
 	mux.HandleFunc("GET /api/v1/analytics/pricing-trends", analytics.GetPricingTrends)
 
@@ -78,13 +89,6 @@ func RegisterRoutes(cfg *config.Config) http.Handler {
 	// ==========================================
 	// 2. AUTHENTICATED GENERAL ROUTES
 	// ==========================================
-	authHandler := func(pattern string, handlerFunc http.HandlerFunc) {
-		mux.Handle(pattern, chain(handlerFunc, authMW))
-	}
-
-	roleHandler := func(pattern string, handlerFunc http.HandlerFunc, roleGuard Middleware) {
-		mux.Handle(pattern, chain(handlerFunc, authMW, roleGuard))
-	}
 
 	authHandler("POST /api/v1/auth/logout", auth.Logout)
 	authHandler("POST /api/v1/auth/mfa/enable", auth.EnableMFA)
@@ -97,17 +101,18 @@ func RegisterRoutes(cfg *config.Config) http.Handler {
 	authHandler("DELETE /api/v1/users/me", users.DeactivateMe)
 	authHandler("GET /api/v1/users/{id}", users.GetUserProfile)
 	authHandler("PUT /api/v1/users/{id}/avatar", users.UpdateAvatar)
-	authHandler("GET /api/v1/users/tenants/{id}", users.GetTenantProfile)
-	authHandler("PUT /api/v1/users/tenants/{id}", users.UpdateTenantProfile)
-	authHandler("GET /api/v1/users/landlords/{id}", users.GetLandlordProfile)
-	authHandler("PUT /api/v1/users/landlords/{id}", users.UpdateLandlordProfile)
-	authHandler("GET /api/v1/users/agents/{id}", users.GetAgentProfile)
-	authHandler("PUT /api/v1/users/agents/{id}", users.UpdateAgentProfile)
+	authHandler("GET /api/v1/tenants/{id}", users.GetTenantProfile)
+	authHandler("PUT /api/v1/tenants/{id}", users.UpdateTenantProfile)
+	authHandler("GET /api/v1/landlords/{id}", users.GetLandlordProfile)
+	authHandler("PUT /api/v1/landlords/{id}", users.UpdateLandlordProfile)
+	authHandler("GET /api/v1/agents/{id}", users.GetAgentProfile)
+	authHandler("PUT /api/v1/agents/{id}", users.UpdateAgentProfile)
 	authHandler("GET /api/v1/users/{id}/preferences", users.GetPreferences)
 	authHandler("PUT /api/v1/users/{id}/preferences", users.UpdatePreferences)
 
 	authHandler("POST /api/v1/properties/{id}/reports", properties.ReportListing)
 	authHandler("GET /api/v1/properties/{id}/history", properties.GetHistory)
+	authHandler("GET /api/v1/properties/recommendations", properties.GetRecommendations)
 
 	roleHandler("GET /api/v1/favorites", favorites.ListFavorites, roleTenant)
 	roleHandler("POST /api/v1/favorites", favorites.AddFavorite, roleTenant)
@@ -172,7 +177,6 @@ func RegisterRoutes(cfg *config.Config) http.Handler {
 	// ==========================================
 	// 3. LANDLORD / AGENT PROTECTED ROUTES
 	// ==========================================
-
 
 	roleHandler("POST /api/v1/properties", properties.Create, roleAgentLandlord)
 	roleHandler("PUT /api/v1/properties/{id}", properties.Update, roleAgentLandlord)
@@ -247,6 +251,6 @@ func RegisterRoutes(cfg *config.Config) http.Handler {
 	roleHandler("POST /api/v1/search-index/synonyms", search.CreateSynonym, roleAdminOnly)
 	roleHandler("DELETE /api/v1/search-index/synonyms/{id}", search.DeleteSynonym, roleAdminOnly)
 
-	// Wrap mux with globally standard recovery and logging
+	// Wrap mux with global recovery and logging middleware
 	return chain(mux, middleware.Recover, middleware.Logger)
 }

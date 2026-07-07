@@ -309,7 +309,7 @@ paths:
         '200':
           description: Avatar updated
 
-  /users/tenants/{id}:
+  /tenants/{id}:
     get:
       summary: Get tenant KYC/profile details
       tags: [Users]
@@ -347,7 +347,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/TenantProfile'
 
-  /users/landlords/{id}:
+  /landlords/{id}:
     get:
       summary: Get landlord profile details
       tags: [Users]
@@ -385,7 +385,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/LandlordProfile'
 
-  /users/agents/{id}:
+  /agents/{id}:
     get:
       summary: Get agent profile details
       tags: [Users]
